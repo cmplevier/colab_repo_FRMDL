@@ -36,7 +36,7 @@ CFG = {
 
         # Use whatever your build_model(cfg) expects.
         # Keep/remove fields based on your models.py.
-        "in_channels": [256, 512],
+        #"in_channels": [256, 512],
         "anchors": [
             [[10, 13], [16, 30], [33, 23]],      # P4 / higher-res scale
             [[30, 61], [62, 45], [59, 119]],     # P5 / lower-res scale
