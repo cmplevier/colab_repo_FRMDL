@@ -1,0 +1,26 @@
+model:
+  T: 5
+  decay: 0.25
+  num_classes: 80
+  num_anchors: 3
+  anchors:
+    - [[10, 13], [16, 30], [33, 23]]   # P4 / stride-16 scale
+    - [[30, 61], [62, 45], [59, 119]]  # P5 / stride-32 scale
+  strides: [16, 32]
+
+data:
+  img_size: 640
+  num_workers: 4      # Windows: spawn-based multiprocessing breaks CUDA context sharing
+  pin_memory: false   # Blackwell CUDAPluggableAllocator crashes on pinned-memory free
+
+train:
+  epochs: 300
+  batch_size: 4       # 8 GB VRAM: T=5 activations are 5x normal; AMP brings peak ~2-3 GB
+  lr0: 1.0e-2
+  momentum: 0.937
+  weight_decay: 5.0e-4
+  warmup_epochs: 3
+  accum_steps: 4      # effective batch = 16, same as original intent
+  amp: true           # essential on Blackwell (bf16/fp16 support, large speedup)
+  eval_every: 5
+  save_every: 5
