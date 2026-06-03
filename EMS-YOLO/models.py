@@ -18,7 +18,6 @@ class EMSYOLO(nn.Module):
         self.backbone = EMSResNet34(T=T, decay=decay)
 
         self.head = EMSYOLOHead(
-            in_channels=(256,512),
             num_classes=num_classes,
             num_anchors=num_anchors,
             decay=decay,
