@@ -192,12 +192,12 @@ def main():
     # -----------------------------------------------------------------
     # Wandb setup
     # -----------------------------------------------------------------
-    wandb.login(key=os.getenv("WANDB_API_KEY"))
+    wandb.login(key="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")
 
     wandb.init(        
         entity="adela-greganova-tu-delft",
-        project="COCO-mini-runs",
-        name="run_1",
+        project="COCO-runs",
+        name="run_full_data_1",
         config=cfg,
         dir=str(out))
 
