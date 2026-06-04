@@ -51,7 +51,7 @@ CFG = {
 
     "train": {
         "epochs": 100,
-        "batch_size": 32,
+        "batch_size": 8,
         "lr0": 1e-2,
         "momentum": 0.937,
         "weight_decay": 5e-4,
