@@ -170,6 +170,20 @@ def main():
         help="Resume training from checkpoint",
     )
 
+    ap.add_argument(
+        "--batch-size",
+        type=int,
+        default=None,
+        help="Override train.batch_size from the config",
+    )
+
+    ap.add_argument(
+        "--accum-steps",
+        type=int,
+        default=None,
+        help="Override train.accum_steps from the config",
+    )
+
     args = ap.parse_args()
 
     import copy
@@ -177,6 +191,12 @@ def main():
     if args.config:
         with open(args.config) as f:
             _deep_update(cfg, yaml.safe_load(f))
+
+    if args.batch_size is not None:
+        cfg["train"]["batch_size"] = args.batch_size
+
+    if args.accum_steps is not None:
+        cfg["train"]["accum_steps"] = args.accum_steps
 
     out = Path(args.output)
     out.mkdir(parents=True, exist_ok=True)
