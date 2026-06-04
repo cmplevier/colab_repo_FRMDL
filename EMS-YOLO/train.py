@@ -56,7 +56,7 @@ CFG = {
         "momentum": 0.937,
         "weight_decay": 5e-4,
         "warmup_epochs": 3,
-        "accum_steps": 1,
+        "accum_steps": 4,
         "amp": True,
         "eval_every": 5,
         "save_every": 5,
