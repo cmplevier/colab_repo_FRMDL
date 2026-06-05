@@ -3,12 +3,9 @@
 
 import torch.nn as nn
 import torch
-import sys, os
 
-sys.path.append(os.path.dirname(__file__))
-
-from EMSblock import EMSBlock1, EMSBlock2, SnnConv2d
-from neurons import TDBN, LIFNeuron
+from .EMSblock import EMSBlock1, EMSBlock2, SnnConv2d
+from .neurons import TDBN, LIFNeuron
 
 # table 1: COCO2017 dataset - EMS-ResNet34 - T=4
 # table 2: Gen1 dataset - EMS-ResNet10 (Figure 2) - T=5, firing rate, number of parameters

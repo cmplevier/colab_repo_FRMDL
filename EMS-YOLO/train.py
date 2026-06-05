@@ -4,6 +4,7 @@ import argparse
 import json
 import math
 import os
+import re
 import time
 from pathlib import Path
 
@@ -138,6 +139,10 @@ def _deep_update(base: dict, override: dict) -> None:
             base[k] = v
 
 
+def _wandb_safe_metric_component(name: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_]", "_", name)
+
+
 def main():
     ap = argparse.ArgumentParser()
 
@@ -214,15 +219,16 @@ def main():
     # -----------------------------------------------------------------
     wandb.login(key="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")
 
-    wandb.init(        
+    wandb.init(
         entity="adela-greganova-tu-delft",
         project="COCO-runs",
         name="run_full_data_1",
         config=cfg,
         dir=str(out))
 
-
-
+    wandb.define_metric("epoch")
+    for metric_pattern in ("lr", "time/*", "train/*", "val/*", "snn/*"):
+        wandb.define_metric(metric_pattern, step_metric="epoch")
 
     # -----------------------------------------------------------------
     # Data
@@ -437,24 +443,22 @@ def main():
                     "Check that the model uses the same LIFNeuron class imported by firing_rate.py."
                 )
 
-            wandb.log(
+            eval_log = {
+                "epoch": epoch,
+                "val/map_50": metrics["mAP@0.5"],
+                "val/map_50_95": metrics["mAP@0.5:0.95"],
+                "snn/firing_rate": fr["overall"],
+                "snn/tracked_lif_layers": tracked_layers,
+            }
+            eval_log.update(
                 {
-                    "epoch": epoch,
-                    "val/mAP@0.5": metrics["mAP@0.5"],
-                    "val/mAP@0.5:0.95": metrics["mAP@0.5:0.95"],
-                    "snn/firing_rate": fr["overall"],
-                    "snn/tracked_lif_layers": tracked_layers,
+                    "snn/layer_firing_rate_"
+                    f"{_wandb_safe_metric_component(layer_name)}": layer_rate
+                    for layer_name, layer_rate in fr.items()
+                    if layer_name != "overall"
                 }
             )
-
-            for layer_name, layer_rate in fr.items():
-                if layer_name != "overall":
-                    wandb.log(
-                        {
-                            "epoch": epoch,
-                            f"snn/layer_firing_rate/{layer_name}": layer_rate,
-                        }
-                    )
+            wandb.log(eval_log)
 
             with open(out / f"firing_rates_epoch{epoch}.json", "w") as f:
                 json.dump(

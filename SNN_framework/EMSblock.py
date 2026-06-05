@@ -3,11 +3,8 @@
 
 import torch.nn as nn
 import torch
-import sys, os
 
-sys.path.append(os.path.dirname(__file__))
-
-from neurons import LIFNeuron, TDBN
+from .neurons import LIFNeuron, TDBN
 
 # LIFNeuron: spiking activation: converts membrane potential to binary spikes
 # TDBN: threshold-dependent batch normalisation: normalize before each LIF
