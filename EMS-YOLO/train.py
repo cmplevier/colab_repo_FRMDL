@@ -222,7 +222,7 @@ def main():
     wandb.init(
         entity="adela-greganova-tu-delft",
         project="COCO-runs",
-        name="run_full_data_1",
+        name="HP_run_tim",
         config=cfg,
         dir=str(out))
 
