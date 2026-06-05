@@ -30,7 +30,7 @@ CFG = {
     "model": {
         "name": "ems_yolo",
         "backbone": "ems_resnet34",
-        "T": 4,
+        "T": 2,
         "decay": 0.25,
         "num_classes": 80,
         "num_anchors": 3,
