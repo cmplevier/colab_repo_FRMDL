@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 
 # global hyperparameters
-THRESHOLD = 0.50 # firing threshold
+THRESHOLD = 0.35 # firing threshold
 DECAY = 0.25 # decay - membrane leak factor
                     # forgets past input over time
                     # -> close to 1.0 - slow decay
