@@ -21,6 +21,7 @@ from utils.loss import ComputeLoss
 from utils.nms import decode_predictions
 from utils.coco_eval import evaluate_coco, predictions_to_coco_json
 from SNN_framework.firing_rate import FiringRateTracker
+from SNN_framework.energy import EnergyTracker
 
 
 # ---------------------------------------------------------------------
@@ -227,7 +228,7 @@ def main():
         dir=str(out))
 
     wandb.define_metric("epoch")
-    for metric_pattern in ("lr", "time/*", "train/*", "val/*", "snn/*"):
+    for metric_pattern in ("lr", "time/*", "train/*", "val/*", "snn/*", "energy/*"):
         wandb.define_metric(metric_pattern, step_metric="epoch")
 
     # -----------------------------------------------------------------
@@ -415,6 +416,7 @@ def main():
         # -------------------------------------------------------------
         if (epoch + 1) % cfg["train"]["eval_every"] == 0 or epoch == epochs - 1:
             with FiringRateTracker(model) as tracker:
+                energy_tracker = EnergyTracker(model, T=cfg["model"]["T"])
                 metrics = evaluate(
                     model,
                     val_loader,
@@ -428,13 +430,18 @@ def main():
                 fr = tracker.firing_rates()
                 fr_summary = tracker.summary()
                 tracked_layers = tracker.num_tracked_layers()
+                energy = energy_tracker.energy(fr)
+                energy_tracker.remove()
 
+            _ratio_str = f" E_ratio={energy['ratio']:.4f}" if energy["ratio"] is not None else ""
             print(
                 f"[epoch {epoch}] "
                 f"mAP@0.5={metrics['mAP@0.5']:.4f} "
                 f"mAP@0.5:0.95={metrics['mAP@0.5:0.95']:.4f} "
                 f"firing_rate={fr['overall']:.6f} "
-                f"tracked_lif_layers={tracked_layers}"
+                f"tracked_lif_layers={tracked_layers} "
+                f"E_SNN={energy['E_SNN_J']*1e12:.2f}pJ"
+                f"{_ratio_str}"
             )
 
             if tracked_layers == 0:
@@ -443,13 +450,24 @@ def main():
                     "Check that the model uses the same LIFNeuron class imported by firing_rate.py."
                 )
 
+            if energy_tracker.num_resolved_pairs() == 0:
+                print(
+                    "[warning] EnergyTracker resolved 0 LIF-Conv pairs. "
+                    "Check that the model uses SnnConv2d from SNN_framework.EMSblock."
+                )
+
             eval_log = {
                 "epoch": epoch,
                 "val/map_50": metrics["mAP@0.5"],
                 "val/map_50_95": metrics["mAP@0.5:0.95"],
                 "snn/firing_rate": fr["overall"],
                 "snn/tracked_lif_layers": tracked_layers,
+                "energy/E_SNN_pJ": energy["E_SNN_J"] * 1e12,
+                "energy/E_ANN_pJ": energy["E_ANN_J"] * 1e12,
+                "energy/tracked_pairs": energy_tracker.num_tracked_pairs(),
             }
+            if energy["ratio"] is not None:
+                eval_log["energy/ratio"] = energy["ratio"]
             eval_log.update(
                 {
                     "snn/layer_firing_rate_"
@@ -467,6 +485,16 @@ def main():
                         "overall": fr["overall"],
                         "tracked_lif_layers": tracked_layers,
                         "per_layer": fr_summary,
+                        "energy": {
+                            "E_SNN_pJ": energy["E_SNN_J"] * 1e12,
+                            "E_ANN_pJ": energy["E_ANN_J"] * 1e12,
+                            "ratio": energy["ratio"],
+                            "tracked_pairs": energy_tracker.num_tracked_pairs(),
+                            "per_layer": {
+                                k: {**v, "E_SNN_pJ": v["E_SNN_J"] * 1e12, "E_ANN_pJ": v["E_ANN_J"] * 1e12}
+                                for k, v in energy["per_layer"].items()
+                            },
+                        },
                     },
                     f,
                     indent=2,
