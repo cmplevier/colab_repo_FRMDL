@@ -3,3 +3,5 @@ __pycache__
 runs/
 gen1
 detection_dataset*
+EMS-YOLO/gen1_implementation_plan.md
+repo.tar.gz
