@@ -49,12 +49,13 @@ class SnnMaxPool2d(nn.Module):
 
 class MSBlock(nn.Module):
     """
-    Multi-Scale Block - applied after residual addition in both EMS block types
-    - keeps spatial size AND channel count constant
+    Multi-Scale Block - applied after residual addition in both EMS block types.
+    Keeps spatial size AND channel count constant.
 
     main path: LIF -> Conv3x3 -> TDBN -> LIF -> Conv3x3 -> TDBN
     skip: identity (x unchanged)
     output: main + x
+    """
 
     def __init__(self, in_ch, decay=0.25):
         super().__init__()
@@ -71,19 +72,9 @@ class MSBlock(nn.Module):
 
     def forward(self, x):
         # x: [T, B, in_ch, H, W]
-
-        # main path
-        out = self.bn1(self.conv1(self.lif1(x))) # [T, B, in_ch, H, W]
-        out = self.bn2(self.conv2(self.lif2(out))) # [T, B, in_ch, H, W]
-
-        return out + x # [T, B, in_ch, H, W]
-        """
-        #MSBlock disabled - passes input through unchanged.
-    def __init__(self, in_ch, decay=0.25):
-        super().__init__()
-
-    def forward(self, x):
-        return x
+        out = self.bn1(self.conv1(self.lif1(x)))
+        out = self.bn2(self.conv2(self.lif2(out)))
+        return out + x
 
 # Type 1 Residual Block
 class EMSBlock1(nn.Module):

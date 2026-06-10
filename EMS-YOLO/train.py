@@ -31,7 +31,7 @@ CFG = {
     "model": {
         "name": "ems_yolo",
         "backbone": "ems_resnet34",
-        "T": 2,
+        "T": 4,
         "decay": 0.25,
         "num_classes": 80,
         "num_anchors": 3,
@@ -110,6 +110,7 @@ def evaluate(model, val_loader, cfg, output_dir, coco_gt_path, idx_to_id, device
             model.nc,
             model.na,
             conf_thresh=0.001,
+            anchors=cfg["model"].get("anchors"),
         )
 
         all_preds.extend(
@@ -303,7 +304,7 @@ def main():
     # -----------------------------------------------------------------
     # Loss + optimizer
     # -----------------------------------------------------------------
-    loss_fn = ComputeLoss(model)
+    loss_fn = ComputeLoss(model, anchors=cfg["model"].get("anchors"))
 
     optim = torch.optim.SGD(
         model.parameters(),

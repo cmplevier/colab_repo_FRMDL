@@ -56,13 +56,18 @@ class ComputeLoss:
     """Callable: returns scalar loss and a dict of components."""
 
     def __init__(self, model, lambda_box: float = 0.05, lambda_obj: float = 1.0,
-                 lambda_cls: float = 0.5):
+                 lambda_cls: float = 0.5, anchors=None):
         self.model = model
         self.nc = model.nc
         self.na = model.na
         self.strides = model.strides
-        # Sensible default anchors (COCO yolov3-tiny style, just two scales)
-        self.anchors = build_anchors(self.strides)  # tuple of (na, 2) per scale, in pixels
+        if anchors is not None:
+            # anchors from config: list of lists [[w,h], ...] per scale, in pixels
+            self.anchors = tuple(
+                torch.tensor(a, dtype=torch.float32) for a in anchors
+            )
+        else:
+            self.anchors = build_anchors(self.strides)
         self.lambda_box = lambda_box
         self.lambda_obj = lambda_obj
         self.lambda_cls = lambda_cls

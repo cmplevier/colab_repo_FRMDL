@@ -2,12 +2,19 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from SNN_framework.ResNetBackbones import EMSResNet34
+from SNN_framework.ResNetBackbones import EMSResNet10, EMSResNet18, EMSResNet34
 from Head import EMSYOLOHead
 from torch import nn
 
+_BACKBONES = {
+    "ems_resnet10": EMSResNet10,
+    "ems_resnet18": EMSResNet18,
+    "ems_resnet34": EMSResNet34,
+}
+
+
 class EMSYOLO(nn.Module):
-    def __init__(self, T=5, decay=0.25, num_classes=80, num_anchors=3):
+    def __init__(self, backbone="ems_resnet34", T=5, decay=0.25, num_classes=80, num_anchors=3):
         super().__init__()
 
         self.T = T
@@ -15,7 +22,10 @@ class EMSYOLO(nn.Module):
         self.na = num_anchors
         self.strides = [16, 32]
 
-        self.backbone = EMSResNet34(T=T, decay=decay)
+        if backbone not in _BACKBONES:
+            raise ValueError(f"Unknown backbone '{backbone}'. Choose from: {list(_BACKBONES)}")
+
+        self.backbone = _BACKBONES[backbone](T=T, decay=decay)
 
         self.head = EMSYOLOHead(
             num_classes=num_classes,
@@ -28,6 +38,8 @@ class EMSYOLO(nn.Module):
         self.backbone.T = T
 
     def forward(self, x):
+        # x: (B, C, H, W) for COCO — replicated to (T, B, C, H, W)
+        # x: (T, B, C, H, W) for Gen1 — passed through directly
         if x.dim() == 4:
             x = x.unsqueeze(0).repeat(self.T, 1, 1, 1, 1)
 
