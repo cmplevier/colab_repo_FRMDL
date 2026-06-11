@@ -3,10 +3,10 @@
 #SBATCH --account=education-eemcs-msc-dsait
 #SBATCH --partition=gpu-a100
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=33         # 8 workers * 4 GPUs + 1 torchrun process
-#SBATCH --gpus-per-task=4
+#SBATCH --cpus-per-task=17         # 8 workers * 2 GPUs + 1 torchrun process
+#SBATCH --gpus-per-task=2
 #SBATCH --mem-per-cpu=4G
-#SBATCH --time=13:00:00
+#SBATCH --time=18:00:00
 #SBATCH --output=logs/coco_%j.out
 #SBATCH --error=logs/coco_%j.err
 
@@ -70,7 +70,7 @@ if [[ -n "${RESUME:-}" ]]; then
     RESUME_ARG="--resume $RESUME"
 fi
 
-torchrun --standalone --nproc_per_node=4 "$REPO/EMS-YOLO/train_coco.py" \
+torchrun --standalone --nproc_per_node=2 "$REPO/EMS-YOLO/train_coco.py" \
     --data-root  "$COCO_SRC"  \
     --output     "$OUTPUT"    \
     --config     "$CONFIG"    \
