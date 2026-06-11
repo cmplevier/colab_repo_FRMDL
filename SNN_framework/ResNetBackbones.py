@@ -15,16 +15,15 @@ from .neurons import TDBN, LIFNeuron
 # FOR ALL: report  mAP at IOU=0.5 (mAP@0.5) and the average AP between 0.5 and 0.95 (mAP@0.5:0.95)
 def create_EMSModule(in_ch, out_ch, num_blocks, stride=2, decay=0.25):
     """
-    First block: ConcatBlock_ms = EMSBlock2 (downsamples + increases channels)
-    Remaining blocks: BasicBlock_ms = EMSBlock1 (same spatial size + channels)
-
-    num_blocks=1 -> just EMSBlock2 (ResNet-10 style)
-    num_blocks=2 -> EMSBlock2 + 1x EMSBlock1 (ResNet-18 style)
-    num_blocks=3 -> EMSBlock2 + 2x EMSBlock1 (ResNet-34 style)
+    First block: EMSBlock2 when out_ch > in_ch (concat shortcut), else EMSBlock1 (projection shortcut)
+    Remaining blocks: EMSBlock1 (same spatial size + channels)
     """
     layers = []
 
-    layers.append(EMSBlock2(in_ch, out_ch, stride=stride, decay=decay)) # always starts w. EMSBlock2
+    if out_ch > in_ch:
+        layers.append(EMSBlock2(in_ch, out_ch, stride=stride, decay=decay))
+    else:
+        layers.append(EMSBlock1(in_ch, out_ch, stride=stride, decay=decay))
 
     for _ in range(num_blocks - 1):
         layers.append(EMSBlock1(out_ch, out_ch, stride=1, decay=decay))
@@ -103,11 +102,11 @@ class EMSResNet34(nn.Module):
         self.T = T
         self.decay = decay
 
-        # stem: conv2
-        self.conv1 = SnnConv2d(3, 32, 3, stride=2, padding=1)
-        self.stem_tdbn = TDBN(32)
+        # stem: 7x7 conv, 64ch, stride=2 — matches Conv_1 in reference resnet34.yaml
+        self.conv1 = SnnConv2d(3, 64, 7, stride=2, padding=3)
+        self.stem_tdbn = TDBN(64)
 
-        self.conv2 = create_EMSModule(32, 64,  num_blocks=3, stride=2, decay=decay) # P2/4
+        self.conv2 = create_EMSModule(64, 64,  num_blocks=3, stride=2, decay=decay) # P2/4
         self.conv3 = create_EMSModule(64, 128, num_blocks=4, stride=2, decay=decay) # P3/8
         self.conv4 = create_EMSModule(128, 256, num_blocks=6, stride=2, decay=decay) # P4/16
         self.conv5 = create_EMSModule(256, 512, num_blocks=3, stride=2, decay=decay) # P5/32
