@@ -10,13 +10,13 @@ model:
   strides: [16, 32]
 
 data:
-  img_size: 640
+  img_size: 416
   num_workers: 8
   pin_memory: true
 
 train:
   epochs: 300
-  batch_size: 16
+  batch_size: 32       # fits easily in 80GB A100 at 416px
   lr0: 1.0e-2
   momentum: 0.937
   weight_decay: 5.0e-4
@@ -30,4 +30,4 @@ train:
 wandb:
   entity: adela-greganova-tu-delft
   project: COCO-runs
-  name: coco-resnet34-t4
+  name: coco-resnet34-t4-416

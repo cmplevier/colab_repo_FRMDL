@@ -1,31 +1,15 @@
 #!/bin/bash
 #SBATCH --job-name=ems-yolo-coco
-#SBATCH --partition=gpu
-#SBATCH --nodes=1
+#SBATCH --account=education-eemcs-msc-dsait
+#SBATCH --partition=gpu-a100
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=9          # 8 DataLoader workers + 1 main process
-#SBATCH --gpus-per-task=1
-#SBATCH --mem=32G
-#SBATCH --time=20:00:00
+#SBATCH --cpus-per-task=33         # 8 workers * 4 GPUs + 1 torchrun process
+#SBATCH --gpus-per-task=4
+#SBATCH --mem-per-cpu=4G
+#SBATCH --time=13:00:00
 #SBATCH --output=logs/coco_%j.out
 #SBATCH --error=logs/coco_%j.err
 
-# -----------------------------------------------------------------------
-# One-time setup (run these manually BEFORE submitting, not inside the job):
-#
-#   module load cuda/12.1
-#   python -m venv $HOME/venvs/ems-yolo
-#   source $HOME/venvs/ems-yolo/bin/activate
-#   pip install --upgrade pip
-#   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-#   pip install "numpy<2" Pillow pycocotools wandb pyyaml
-#
-# If the node has Blackwell GPUs (SM 12.0), replace cu121 with cu128:
-#   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
-#
-# Store your W&B key once:
-#   echo "export WANDB_API_KEY=your_key_here" >> $HOME/.bashrc
-# -----------------------------------------------------------------------
 
 set -euo pipefail
 
@@ -34,8 +18,11 @@ set -euo pipefail
 # -----------------------------------------------------------------------
 module purge
 module load cuda/12.1
+module load miniforge3
 
-source "$HOME/venvs/ems-yolo/bin/activate"
+conda activate ems-yolo
+
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 # W&B key — must be set in your environment or .bashrc before submitting
 if [[ -z "${WANDB_API_KEY:-}" ]]; then
@@ -50,7 +37,7 @@ fi
 REPO="$HOME/colab_repo_FRMDL"
 COCO_SRC="/scratch/$USER/coco"          # COCO dataset already on scratch
 OUTPUT="/scratch/$USER/runs/coco-resnet34"
-CONFIG="$REPO/EMS-YOLO/configs/coco_delftblue.yaml"
+CONFIG="$REPO/EMS-YOLO/configs/coco_delftblue_416.yaml"
 
 mkdir -p "$OUTPUT"
 mkdir -p "$REPO/logs"
@@ -72,9 +59,21 @@ echo "=============================="
 # -----------------------------------------------------------------------
 # Train
 # -----------------------------------------------------------------------
-python "$REPO/EMS-YOLO/train_coco.py" \
+# Fresh run:
+#   sbatch EMS-YOLO/slurm_coco.sh
+#
+# Resume (pass full path to last.pt):
+#   sbatch --export=ALL,RESUME=/scratch/hzaharia/runs/coco-resnet34/20260611_120000/last.pt EMS-YOLO/slurm_coco.sh
+RESUME_ARG=""
+if [[ -n "${RESUME:-}" ]]; then
+    echo "Resuming from $RESUME"
+    RESUME_ARG="--resume $RESUME"
+fi
+
+torchrun --standalone --nproc_per_node=4 "$REPO/EMS-YOLO/train_coco.py" \
     --data-root  "$COCO_SRC"  \
     --output     "$OUTPUT"    \
-    --config     "$CONFIG"
+    --config     "$CONFIG"    \
+    $RESUME_ARG
 
 echo "Done. Checkpoints in $OUTPUT"
