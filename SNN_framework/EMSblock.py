@@ -80,7 +80,7 @@ class MSBlock(nn.Module):
 class EMSBlock1(nn.Module):
     """
     - used when channel number is constant or decreasing
-    main path: LIF -> Conv3x3 -> TDBN -> LIF -> Conv3x3 -> TDBN
+    main path: LIF -> Conv3x3 -> TDBN -> LIF -> Conv3x3 -> TDBN  (full width, matches BasicBlock_2)
     shortcut: identity
     output: main + shortcut
     """
@@ -90,62 +90,48 @@ class EMSBlock1(nn.Module):
         # main path:
 
         # LCB
-        self.lif1 = LIFNeuron(decay=decay) # converts input x to spikes before first conv
+        self.lif1 = LIFNeuron(decay=decay)
 
         self.conv1 = SnnConv2d(in_ch, out_ch, kernel_size=3, stride=stride, padding=1)
 
-        self.bn1 = TDBN(out_ch) # normalise after conv1, before lif2
+        self.bn1 = TDBN(out_ch)
 
         # LCB
-        self.lif2 = LIFNeuron(decay=decay) # converts tdbn1 output to spikes before second conv
+        self.lif2 = LIFNeuron(decay=decay)
 
         self.conv2 = SnnConv2d(out_ch, out_ch, kernel_size=3, stride=1, padding=1)
 
-        self.bn2 = TDBN(out_ch) # normalise after conv2, before addition with shortcut
+        self.bn2 = TDBN(out_ch)
 
-        # MS Block
-        self.ms_block = MSBlock(out_ch, decay=decay)
+        # MS Block — not used in reference implementation (BasicBlock_2 in resnet34.yaml)
+        # self.ms_block = MSBlock(out_ch, decay=decay)
 
         # shortcut path:
-        
         if stride != 1 or in_ch != out_ch:
-
             self.shortcut = nn.Sequential(
-                SnnMaxPool2d(stride, stride), # match spatial size first
-                LIFNeuron(decay=decay), # convert to spikes
-                SnnConv2d(in_ch, out_ch, kernel_size=1), # match channels
+                SnnMaxPool2d(stride, stride),
+                LIFNeuron(decay=decay),
+                SnnConv2d(in_ch, out_ch, kernel_size=1),
                 TDBN(out_ch),)
         else:
-            self.shortcut = nn.Identity() # stride=1 and same channels: x passes through unchanged
+            self.shortcut = nn.Identity()
 
     def forward(self, x):
         # x: [T, B, C, H, W]
 
         # main path:
-        out = self.bn1(
-            self.conv1(
-                self.lif1(x)
-                )
-            ) # [T, B, out_ch, H', W']
-        
-        out = self.bn2(
-            self.conv2(
-                self.lif2(out)
-                )
-            ) # [T, B, out_ch, H', W']
+        out = self.bn1(self.conv1(self.lif1(x)))   # [T, B, out_ch, H', W']
+        out = self.bn2(self.conv2(self.lif2(out)))  # [T, B, out_ch, H', W']
 
-        # shortcut path:
-        shortcut = self.shortcut(x)
-
-        # add main path and shortcut (eq.7: X_L = Add(Fr(X_{L-1}), Fs(X_{L-1})))
-        return self.ms_block(out + shortcut) # [T, B, out_ch, H', W']
+        return out + self.shortcut(x)
+        # return self.ms_block(out + self.shortcut(x))
 
 # Type 2 Residual Block
 class EMSBlock2(nn.Module):
     """
     - used when channel number increases
 
-    Main path: LIF -> Conv3x3 -> TDBN -> LIF -> Conv3x3 -> TDBN
+    Main path: LIF -> Conv3x3 -> TDBN -> LIF -> Conv3x3 -> TDBN  (full width, matches BasicBlock_2)
     Shortcut path: MaxPool -> LIF -> Conv1x1 -> TDBN
 
     - concat(shortcut_features, pooled_input) to reach out_ch total
@@ -174,51 +160,25 @@ class EMSBlock2(nn.Module):
         self.bn2 = TDBN(out_ch)
 
         # shortcut path:
-
-        # first pool input
         self.pool = SnnMaxPool2d(kernel_size=stride, stride=stride)
-        # then LCB
         self.shortcut_lif = LIFNeuron(decay=decay)
-
         self.shortcut_conv = SnnConv2d(in_ch, out_ch - in_ch, kernel_size=1, stride=1, padding=0)
-
         self.shortcut_bn = TDBN(out_ch - in_ch)
 
-        # MS Block
-        self.ms_block = MSBlock(out_ch, decay=decay)
+        # MS Block — not used in reference implementation (BasicBlock_2 in resnet34.yaml)
+        # self.ms_block = MSBlock(out_ch, decay=decay)
 
-        
     def forward(self, x):
         # x: [T, B, in_ch, H, W]
 
         # main path:
-        out = self.bn1(
-            self.conv1(
-                self.lif1(x)
-                )
-            ) # [T, B, out_ch, H', W']
-        
-        out = self.bn2(
-            self.conv2(
-                self.lif2(out)
-                )
-            )# [ T, B, out_ch, H', W']
+        out = self.bn1(self.conv1(self.lif1(x)))   # [T, B, out_ch, H', W']
+        out = self.bn2(self.conv2(self.lif2(out)))  # [T, B, out_ch, H', W']
 
         # shortcut path:
-        # pool input
         pooled_x = self.pool(x)
+        shortcut = self.shortcut_bn(self.shortcut_conv(self.shortcut_lif(pooled_x)))  # [T, B, out_ch-in_ch, H', W']
+        shortcut = torch.cat([shortcut, pooled_x], dim=2)  # [T, B, out_ch, H', W']
 
-        shortcut = self.shortcut_bn(
-            self.shortcut_conv(
-                self.shortcut_lif(pooled_x)
-            )
-        ) # [T, B, out_ch - in_ch, H, W]
-
-        # concatenate shortcut with x along channel dimension (dim=2 in [T, B, C, H, W])
-        # shortcut: [T, B, out_ch - in_ch, H, W]
-        # x: [T, B, in_ch, H, W]
-        # result: [T, B, out_ch, H', W']
-        shortcut = torch.cat([shortcut, pooled_x], dim=2)
-
-        # add main path and shortcut
-        return self.ms_block(out + shortcut) # [T, B, out_ch, H', W']
+        return out + shortcut
+        # return self.ms_block(out + shortcut)
