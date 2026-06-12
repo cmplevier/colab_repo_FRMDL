@@ -26,6 +26,7 @@ class FiringRateTracker:
                 self._hooks.append(handle)
 
     def _make_hook(self, name: str):
+        @torch._dynamo.disable
         def hook(module: LIFNeuron, inputs: tuple[Any, ...], output: torch.Tensor):
             if output is None:
                 return

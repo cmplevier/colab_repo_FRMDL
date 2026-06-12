@@ -16,12 +16,12 @@ data:
 
 train:
   epochs: 300
-  batch_size: 32       # fits easily in 80GB A100 at 416px
+  batch_size: 16       # 16GB A4000; accum_steps=2 keeps effective batch=128
   lr0: 1.0e-2
   momentum: 0.937
   weight_decay: 5.0e-4
   warmup_epochs: 3
-  accum_steps: 1
+  accum_steps: 2
   amp: true
   compile: true
   eval_every: 5

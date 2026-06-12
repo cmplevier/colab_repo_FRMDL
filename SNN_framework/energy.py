@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import torch
+
 from .neurons import LIFNeuron
 from .EMSblock import SnnConv2d
 
@@ -57,6 +59,7 @@ class EnergyTracker:
             self._hooks.append(h)
 
     def _make_conv_hook(self, name: str):
+        @torch._dynamo.disable
         def hook(module: SnnConv2d, inputs, output):
             # Record connection count once — shape is constant across batches
             if name in self._conv_connections:
