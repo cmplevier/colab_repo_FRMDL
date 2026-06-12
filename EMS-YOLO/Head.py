@@ -44,15 +44,13 @@ class MembraneHead(nn.Module):
 
 class EMSYOLOHead(nn.Module):
     """
-    2-scale spiking YOLO head matching paper figure 6.
+    2-scale spiking YOLO head matching paper figure 6 (resnet34.yaml).
 
     p5 → EMSBlock1(512→256) ──────────────→ EMSBlock2(256→512) → head_p5
                     ↓
-             EMSBlock1(256→128)
-                    ↓
                 Upsample
                     ↓
-    p4 →         Concat(128+256=384) ──→ EMSBlock1(384→256) → head_p4
+    p4 →         Concat(256+256=512) ──→ EMSBlock1(512→256) → head_p4
     """
     def __init__(self, num_classes=2, num_anchors=3, decay=0.25):
         super().__init__()
@@ -66,11 +64,10 @@ class EMSYOLOHead(nn.Module):
         # p5 detection branch: 256→512
         self.block_p5_out   = EMSBlock2(256, 512, stride=1, decay=decay)
 
-        # p4 path: reduce 256→128, upsample, concat with p4 (128+256=384), detect 384→256
-        self.block_p4_reduce = EMSBlock1(256, 128, stride=1, decay=decay)
-        self.upsample        = SnnUpsample(scale_factor=2)
-        self.concat          = SnnConcat()
-        self.block_p4_out    = EMSBlock1(384, 256, stride=1, decay=decay)
+        # p4 path: upsample 256ch, concat with p4 (256+256=512), detect 512→256
+        self.upsample     = SnnUpsample(scale_factor=2)
+        self.concat        = SnnConcat()
+        self.block_p4_out  = EMSBlock1(512, 256, stride=1, decay=decay)
 
         # output heads
         self.head_p5 = MembraneHead(512, num_anchors, num_classes)
@@ -87,9 +84,8 @@ class EMSYOLOHead(nn.Module):
         p5_det = self.block_p5_out(x)       # [T, B, 512, H/32, W/32]
 
         # p4 branch
-        x = self.block_p4_reduce(x)         # [T, B, 128, H/32, W/32]
-        x = self.upsample(x)                # [T, B, 128, H/16, W/16]
-        x = self.concat([x, p4])            # [T, B, 384, H/16, W/16]
+        x = self.upsample(x)                # [T, B, 256, H/16, W/16]
+        x = self.concat([x, p4])            # [T, B, 512, H/16, W/16]
         p4_det = self.block_p4_out(x)       # [T, B, 256, H/16, W/16]
 
         # readout: average spikes over T, apply 1x1 conv

@@ -5,8 +5,8 @@ model:
   num_classes: 80
   num_anchors: 3
   anchors:
-    - [[10, 13], [16, 30], [33, 23]]
-    - [[30, 61], [62, 45], [59, 119]]
+    - [[10, 14], [23, 27], [37, 58]]
+    - [[81, 82], [135, 169], [344, 319]]
   strides: [16, 32]
 
 data:
@@ -16,8 +16,8 @@ data:
 
 train:
   epochs: 300
-  batch_size: 16       # 16GB A4000; accum_steps=2 keeps effective batch=128
-  lr0: 1.0e-2
+  batch_size: 16       # L40S; 4 GPUs × 16 × accum_steps=2 → effective batch=128
+  lr0: 2.0e-2          # sqrt-scaled from paper's lr=1e-2 @ batch=32 → ×√4 for batch=128
   momentum: 0.937
   weight_decay: 5.0e-4
   warmup_epochs: 3
