@@ -42,7 +42,7 @@ def decode_predictions(
                                 torch.arange(Wi, device=device), indexing="ij")
         grid = torch.stack([xv, yv], dim=-1).view(1, 1, Hi, Wi, 2).float()
 
-        xy = (p[..., 0:2].sigmoid() + grid) * stride
+        xy = (p[..., 0:2].sigmoid() * 2.0 - 0.5 + grid) * stride
         wh = (p[..., 2:4].sigmoid() * 2) ** 2 * anchors.view(1, na, 1, 1, 2) * stride
         obj = p[..., 4:5].sigmoid()
         cls = p[..., 5:].sigmoid()

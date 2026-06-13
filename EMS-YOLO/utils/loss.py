@@ -99,11 +99,14 @@ class ComputeLoss:
 
             if n:
                 ps = p[b, a, gj, gi]  # (N, 5+nc)
-                # decode bbox
-                pxy = ps[:, 0:2].sigmoid()
+                # tbox[:,0:2] ∈ (-0.5, 1.5) for multi-positive neighbor cells;
+                # sigmoid*2-0.5 matches that range; + cell origin gives absolute grid pos.
+                grid_xy = torch.stack([gi.float(), gj.float()], dim=-1)  # (N, 2)
+                pxy = ps[:, 0:2].sigmoid() * 2.0 - 0.5 + grid_xy
                 pwh = (ps[:, 2:4].sigmoid() * 2) ** 2 * anchor_w  # (N, 2)
                 pbox = torch.cat([pxy, pwh], dim=-1)
-                ciou = bbox_ciou(pbox, tbox)
+                tbox_full = torch.cat([tbox[:, 0:2] + grid_xy, tbox[:, 2:4]], dim=1)
+                ciou = bbox_ciou(pbox, tbox_full)
                 loss_box = loss_box + (1.0 - ciou).mean()
 
                 obj_target[b, a, gj, gi] = ciou.detach().clamp(0).type(obj_target.dtype)

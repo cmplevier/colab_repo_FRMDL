@@ -93,11 +93,12 @@ def _wandb_safe(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9_]", "_", name)
 
 
-def cosine_lr(epoch: int, total_epochs: int, lr0: float, warmup_epochs: int) -> float:
+def cosine_lr(epoch: int, total_epochs: int, lr0: float, warmup_epochs: int,
+              lrf: float = 0.1) -> float:
     if epoch < warmup_epochs:
         return lr0 * (epoch + 1) / max(1, warmup_epochs)
     progress = (epoch - warmup_epochs) / max(1, total_epochs - warmup_epochs)
-    return lr0 * (0.01 + 0.99 * 0.5 * (1 + math.cos(math.pi * progress)))
+    return lr0 * (lrf + (1 - lrf) * 0.5 * (1 + math.cos(math.pi * progress)))
 
 
 def load_pretrained(model: nn.Module, ckpt_path: str) -> None:
@@ -281,13 +282,25 @@ def main():
     # ------------------------------------------------------------------
     loss_fn = ComputeLoss(raw_model, anchors=cfg["model"].get("anchors"))
 
+    # Split into 3 groups matching YOLOv5/EMS-YOLO original:
+    #   BN weights + biases → no weight_decay (TDBN weights must not be pulled toward 0)
+    #   everything else → weight_decay
+    g_wd, g_no_wd = [], []
+    for m in model.modules():
+        if hasattr(m, "bias") and isinstance(m.bias, nn.Parameter):
+            g_no_wd.append(m.bias)
+        if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
+            g_no_wd.append(m.weight)
+        elif hasattr(m, "weight") and isinstance(m.weight, nn.Parameter):
+            g_wd.append(m.weight)
+
     optim = torch.optim.SGD(
-        model.parameters(),
+        g_no_wd,
         lr=cfg["train"]["lr0"],
         momentum=cfg["train"]["momentum"],
-        weight_decay=cfg["train"]["weight_decay"],
         nesterov=True,
     )
+    optim.add_param_group({"params": g_wd, "weight_decay": cfg["train"]["weight_decay"]})
 
     scaler = torch.amp.GradScaler(device.type, enabled=use_amp)
 
@@ -314,7 +327,8 @@ def main():
         if train_sampler is not None:
             train_sampler.set_epoch(epoch)
 
-        lr = cosine_lr(epoch, epochs, cfg["train"]["lr0"], cfg["train"]["warmup_epochs"])
+        lr = cosine_lr(epoch, epochs, cfg["train"]["lr0"], cfg["train"]["warmup_epochs"],
+                       lrf=cfg["train"].get("lrf", 0.1))
         for pg in optim.param_groups:
             pg["lr"] = lr
 
