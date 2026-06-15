@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import torch
+import torch.nn as nn
 
 from .neurons import LIFNeuron
 from .EMSblock import SnnConv2d
@@ -8,14 +9,21 @@ from .EMSblock import SnnConv2d
 
 class EnergyTracker:
     """
-    Estimates per-layer and total SNN energy using the EMS-YOLO paper formula:
+    Estimates per-layer and total SNN energy:
 
-        E_l = fr_l * T * Connections_l * E_AC
+        E_total = fr * T * Connections * E_AC          (spiking LIF→SnnConv2d pairs)
+                + T * Connections * E_MAC               (stem SnnConv2d, no preceding LIF)
+                + Connections * E_MAC                   (non-spiking nn.Conv2d, e.g. head)
+
+    ANN baseline uses a single forward pass with E_MAC for every layer:
+        E_ANN = Connections * E_MAC   (for all layers, no T factor)
+
+    ratio = E_total / E_ANN  — lower is more efficient.
 
     Usage:
         with FiringRateTracker(model) as fr_tracker:
             energy_tracker = EnergyTracker(model, T=cfg["model"]["T"])
-            evaluate(model, ...)                  # triggers hooks
+            evaluate(model, ...)
             fr    = fr_tracker.firing_rates()
             stats = energy_tracker.energy(fr)
             energy_tracker.remove()
@@ -26,9 +34,9 @@ class EnergyTracker:
 
     def __init__(self, model, T: int) -> None:
         self.T = T
-        # ordered list of (lif_name, conv_name) pairs discovered by DFS traversal
-        self._lif_conv_pairs: list[tuple[str, str]] = []
-        # conv_name -> connections per image per timestep (populated on first forward)
+        self._lif_conv_pairs: list[tuple[str, str]] = []   # spiking: (lif_name, conv_name)
+        self._stem_convs: list[str] = []                    # SnnConv2d without preceding LIF
+        self._head_convs: list[str] = []                    # plain nn.Conv2d (detection head)
         self._conv_connections: dict[str, int] = {}
         self._hooks: list = []
 
@@ -40,37 +48,63 @@ class EnergyTracker:
     # ------------------------------------------------------------------
 
     def _build_pairs(self, model) -> None:
-        """
-         when a SnnConv2d is encountered, pair it with the most recently seen LIFNeuron. 
-         This captures both the main path pairs and the shortcut path pairs.
-        """
         last_lif: str | None = None
+        snn_conv2d_names: set[str] = set()
+
         for name, module in model.named_modules():
             if isinstance(module, LIFNeuron):
                 last_lif = name
-            elif isinstance(module, SnnConv2d) and last_lif is not None:
-                self._lif_conv_pairs.append((last_lif, name))
+            elif isinstance(module, SnnConv2d):
+                snn_conv2d_names.add(name)
+                if last_lif is not None:
+                    self._lif_conv_pairs.append((last_lif, name))
+                else:
+                    self._stem_convs.append(name)   # real-valued input, T passes → T×E_MAC
+
+        # plain nn.Conv2d not inside any SnnConv2d wrapper (e.g. MembraneHead)
+        snn_inner = {f"{n}.conv" for n in snn_conv2d_names}
+        for name, module in model.named_modules():
+            if isinstance(module, nn.Conv2d) and name not in snn_inner:
+                self._head_convs.append(name)
 
     def _register_hooks(self, model) -> None:
-        conv_map = {n: m for n, m in model.named_modules() if isinstance(m, SnnConv2d)}
+        module_map = {n: m for n, m in model.named_modules()}
+
         for _, conv_name in self._lif_conv_pairs:
-            module = conv_map[conv_name]
-            h = module.register_forward_hook(self._make_conv_hook(conv_name))
+            h = module_map[conv_name].register_forward_hook(self._make_snn_hook(conv_name))
             self._hooks.append(h)
 
-    def _make_conv_hook(self, name: str):
+        for conv_name in self._stem_convs:
+            h = module_map[conv_name].register_forward_hook(self._make_snn_hook(conv_name))
+            self._hooks.append(h)
+
+        for conv_name in self._head_convs:
+            h = module_map[conv_name].register_forward_hook(self._make_head_hook(conv_name))
+            self._hooks.append(h)
+
+    def _make_snn_hook(self, name: str):
+        """Hook for SnnConv2d — output shape is [T, B, C_out, H_out, W_out]."""
         @torch._dynamo.disable
-        def hook(module: SnnConv2d, inputs, output):
-            # Record connection count once — shape is constant across batches
+        def hook(module: SnnConv2d, _inputs, output):
             if name in self._conv_connections:
                 return
-            # output: [T, B, C_out, H_out, W_out]
-            C_out = output.shape[2]
-            H_out = output.shape[3]
-            W_out = output.shape[4]
+            C_out, H_out, W_out = output.shape[2], output.shape[3], output.shape[4]
             k = module.conv.kernel_size
             Kh, Kw = k if isinstance(k, tuple) else (k, k)
             C_in = module.conv.in_channels
+            self._conv_connections[name] = int(Kh * Kw * C_in * C_out * H_out * W_out)
+        return hook
+
+    def _make_head_hook(self, name: str):
+        """Hook for plain nn.Conv2d — output shape is [B, C_out, H_out, W_out]."""
+        @torch._dynamo.disable
+        def hook(module: nn.Conv2d, _inputs, output):
+            if name in self._conv_connections:
+                return
+            C_out, H_out, W_out = output.shape[1], output.shape[2], output.shape[3]
+            k = module.kernel_size
+            Kh, Kw = k if isinstance(k, tuple) else (k, k)
+            C_in = module.in_channels
             self._conv_connections[name] = int(Kh * Kw * C_in * C_out * H_out * W_out)
         return hook
 
@@ -106,22 +140,47 @@ class EnergyTracker:
         total_ann = 0.0
         per_layer: dict[str, dict] = {}
 
+        # Spiking layers: fr * T * conns * E_AC  vs  conns * E_MAC (single-pass ANN)
         for lif_name, conv_name in self._lif_conv_pairs:
             if conv_name not in self._conv_connections:
-                # Hook never fired — model not forwarded yet, or layer not reached
                 continue
             fr    = firing_rates.get(lif_name, 0.0)
             conns = self._conv_connections[conv_name]
             e_snn = fr * self.T * conns * self.E_AC
-            e_ann = conns * self.E_MAC  # ANN simulation
+            e_ann = conns * self.E_MAC
             total_snn += e_snn
             total_ann += e_ann
             per_layer[conv_name] = {
-                "lif_layer":   lif_name,
-                "fr":          fr,
-                "connections": conns,
-                "E_SNN_J":     e_snn,
-                "E_ANN_J":     e_ann,
+                "type": "spiking", "lif_layer": lif_name,
+                "fr": fr, "connections": conns,
+                "E_SNN_J": e_snn, "E_ANN_J": e_ann,
+            }
+
+        # Stem SnnConv2d: real-valued input processed T times → T * conns * E_MAC
+        for conv_name in self._stem_convs:
+            if conv_name not in self._conv_connections:
+                continue
+            conns = self._conv_connections[conv_name]
+            e_snn = self.T * conns * self.E_MAC   # T passes, real-valued
+            e_ann = conns * self.E_MAC             # single-pass ANN baseline
+            total_snn += e_snn
+            total_ann += e_ann
+            per_layer[conv_name] = {
+                "type": "stem", "fr": 1.0, "connections": conns,
+                "E_SNN_J": e_snn, "E_ANN_J": e_ann,
+            }
+
+        # Detection head nn.Conv2d: single pass, same cost in SNN and ANN
+        for conv_name in self._head_convs:
+            if conv_name not in self._conv_connections:
+                continue
+            conns = self._conv_connections[conv_name]
+            e_mac = conns * self.E_MAC
+            total_snn += e_mac
+            total_ann += e_mac
+            per_layer[conv_name] = {
+                "type": "head", "fr": None, "connections": conns,
+                "E_SNN_J": e_mac, "E_ANN_J": e_mac,
             }
 
         ratio = total_snn / total_ann if total_ann > 0.0 else None
