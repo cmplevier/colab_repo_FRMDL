@@ -322,7 +322,14 @@ def main():
     # ------------------------------------------------------------------
     # Training loop
     # ------------------------------------------------------------------
+    close_mosaic = cfg["train"].get("close_mosaic", 10)
+
     for epoch in range(start_epoch, epochs):
+        if close_mosaic > 0 and epoch == epochs - close_mosaic:
+            train_ds.mosaic_prob = 0.0
+            if is_main:
+                print(f"[epoch {epoch}] mosaic disabled for final {close_mosaic} epochs")
+
         model.train()
         if train_sampler is not None:
             train_sampler.set_epoch(epoch)

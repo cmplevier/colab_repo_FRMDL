@@ -5,20 +5,20 @@ model:
   num_classes: 80
   num_anchors: 3
   anchors:
-    - [[10, 14], [23, 27], [37, 58]]
-    - [[81, 82], [135, 169], [344, 319]]
+    - [[15, 22], [35, 42], [57, 89]]      # P4/stride=16  — YOLOv3 416px anchors ×(640/416)
+    - [[125, 126], [208, 260], [529, 491]] # P5/stride=32
   strides: [16, 32]
 
 data:
-  img_size: 416
+  img_size: 640
   num_workers: 8
   pin_memory: true
 
 train:
   epochs: 300
-  batch_size: 16       # L40; 4 GPUs × 16 × accum_steps=2 → effective batch=128
-  lr0: 2.0e-2          # linear-scaled from YOLOv5 nbs=64 lr=1e-2 → ×(128/64) for eff. batch=128
-  lrf: 0.1             # cosine floor = lr0 * lrf (matches YOLOv5 default; was hardcoded 0.01)
+  batch_size: 8        # 32 GB VRAM; T=4 at 640px peaks ~22-26 GB — if OOM drop to 6
+  lr0: 2.0e-2          # 1e-2 × (128/64); eff. batch = 8 GPUs × 8 × accum 2 = 128
+  lrf: 0.1
   momentum: 0.937
   weight_decay: 5.0e-4
   warmup_epochs: 3
@@ -32,4 +32,4 @@ train:
 wandb:
   entity: adela-greganova-tu-delft
   project: COCO-runs
-  name: coco-resnet34-t4-416
+  name: coco-resnet34-t4-640-8gpu
