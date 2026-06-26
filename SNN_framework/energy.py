@@ -12,21 +12,14 @@ class EnergyTracker:
     Estimates per-layer and total SNN energy:
 
         E_total = fr * T * Connections * E_AC          (spiking LIF→SnnConv2d pairs)
-                + T * Connections * E_MAC               (stem SnnConv2d, no preceding LIF)
                 + Connections * E_MAC                   (non-spiking nn.Conv2d, e.g. head)
 
-    ANN baseline uses a single forward pass with E_MAC for every layer:
-        E_ANN = Connections * E_MAC   (for all layers, no T factor)
+
+    ANN baseline uses a single forward pass with E_MAC for every spiking layer:
+        E_ANN = Connections * E_MAC
 
     ratio = E_total / E_ANN  — lower is more efficient.
 
-    Usage:
-        with FiringRateTracker(model) as fr_tracker:
-            energy_tracker = EnergyTracker(model, T=cfg["model"]["T"])
-            evaluate(model, ...)
-            fr    = fr_tracker.firing_rates()
-            stats = energy_tracker.energy(fr)
-            energy_tracker.remove()
     """
 
     E_AC:  float = 0.9e-12   # joules — accumulate at 45nm CMOS
@@ -35,7 +28,6 @@ class EnergyTracker:
     def __init__(self, model, T: int) -> None:
         self.T = T
         self._lif_conv_pairs: list[tuple[str, str]] = []   # spiking: (lif_name, conv_name)
-        self._stem_convs: list[str] = []                    # SnnConv2d without preceding LIF
         self._head_convs: list[str] = []                    # plain nn.Conv2d (detection head)
         self._conv_connections: dict[str, int] = {}
         self._hooks: list = []
@@ -58,8 +50,7 @@ class EnergyTracker:
                 snn_conv2d_names.add(name)
                 if last_lif is not None:
                     self._lif_conv_pairs.append((last_lif, name))
-                else:
-                    self._stem_convs.append(name)   # real-valued input, T passes → T×E_MAC
+                # stem SnnConv2d (no preceding LIF) excluded — cancels out of ratio
 
         # plain nn.Conv2d not inside any SnnConv2d wrapper (e.g. MembraneHead)
         snn_inner = {f"{n}.conv" for n in snn_conv2d_names}
@@ -71,10 +62,6 @@ class EnergyTracker:
         module_map = {n: m for n, m in model.named_modules()}
 
         for _, conv_name in self._lif_conv_pairs:
-            h = module_map[conv_name].register_forward_hook(self._make_snn_hook(conv_name))
-            self._hooks.append(h)
-
-        for conv_name in self._stem_convs:
             h = module_map[conv_name].register_forward_hook(self._make_snn_hook(conv_name))
             self._hooks.append(h)
 
@@ -153,20 +140,6 @@ class EnergyTracker:
             per_layer[conv_name] = {
                 "type": "spiking", "lif_layer": lif_name,
                 "fr": fr, "connections": conns,
-                "E_SNN_J": e_snn, "E_ANN_J": e_ann,
-            }
-
-        # Stem SnnConv2d: real-valued input processed T times → T * conns * E_MAC
-        for conv_name in self._stem_convs:
-            if conv_name not in self._conv_connections:
-                continue
-            conns = self._conv_connections[conv_name]
-            e_snn = self.T * conns * self.E_MAC   # T passes, real-valued
-            e_ann = conns * self.E_MAC             # single-pass ANN baseline
-            total_snn += e_snn
-            total_ann += e_ann
-            per_layer[conv_name] = {
-                "type": "stem", "fr": 1.0, "connections": conns,
                 "E_SNN_J": e_snn, "E_ANN_J": e_ann,
             }
 

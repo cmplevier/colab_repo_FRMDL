@@ -55,6 +55,8 @@ class EMSResNet10(nn.Module):
 
     def forward(self, x):
         x = self.stem_tdbn(self.conv1(x))
+        if x.shape[0] == 1:
+            x = x.expand(self.T, -1, -1, -1, -1).contiguous()
         x = self.conv2(x)
         x = self.conv3(x)
 
@@ -62,7 +64,7 @@ class EMSResNet10(nn.Module):
         p5 = self.conv5(p4) # [T, B, 512, H/32, W/32]
 
         return p4, p5
-    
+
 # for reproducing table 3
 class EMSResNet18(nn.Module):
 
@@ -83,6 +85,8 @@ class EMSResNet18(nn.Module):
 
     def forward(self, x):
         x = self.stem_tdbn(self.conv1(x))
+        if x.shape[0] == 1:
+            x = x.expand(self.T, -1, -1, -1, -1).contiguous()
         x = self.conv2(x)
         x = self.conv3(x)
 
@@ -113,6 +117,8 @@ class EMSResNet34(nn.Module):
 
     def forward(self, x):
         x = self.stem_tdbn(self.conv1(x))
+        if x.shape[0] == 1:
+            x = x.expand(self.T, -1, -1, -1, -1).contiguous()
         x = self.conv2(x)
         x = self.conv3(x)
 

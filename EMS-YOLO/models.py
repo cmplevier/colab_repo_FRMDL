@@ -41,7 +41,7 @@ class EMSYOLO(nn.Module):
         # x: (B, C, H, W) for COCO — replicated to (T, B, C, H, W)
         # x: (T, B, C, H, W) for Gen1 — passed through directly
         if x.dim() == 4:
-            x = x.unsqueeze(0).repeat(self.T, 1, 1, 1, 1)
+            x = x.unsqueeze(0)   # (1, B, C, H, W) — stem runs once, backbone expands after
 
         p4, p5 = self.backbone(x)
 
