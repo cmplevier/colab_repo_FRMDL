@@ -56,13 +56,18 @@ class ComputeLoss:
     """Callable: returns scalar loss and a dict of components."""
 
     def __init__(self, model, lambda_box: float = 0.05, lambda_obj: float = 1.0,
-                 lambda_cls: float = 0.5):
+                 lambda_cls: float = 0.5, anchors=None):
         self.model = model
         self.nc = model.nc
         self.na = model.na
         self.strides = model.strides
-        # Sensible default anchors (COCO yolov3-tiny style, just two scales)
-        self.anchors = build_anchors(self.strides)  # tuple of (na, 2) per scale, in pixels
+        if anchors is not None:
+            # anchors from config: list of lists [[w,h], ...] per scale, in pixels
+            self.anchors = tuple(
+                torch.tensor(a, dtype=torch.float32) for a in anchors
+            )
+        else:
+            self.anchors = build_anchors(self.strides)
         self.lambda_box = lambda_box
         self.lambda_obj = lambda_obj
         self.lambda_cls = lambda_cls
@@ -94,11 +99,14 @@ class ComputeLoss:
 
             if n:
                 ps = p[b, a, gj, gi]  # (N, 5+nc)
-                # decode bbox
-                pxy = ps[:, 0:2].sigmoid()
+                # tbox[:,0:2] ∈ (-0.5, 1.5) for multi-positive neighbor cells;
+                # sigmoid*2-0.5 matches that range; + cell origin gives absolute grid pos.
+                grid_xy = torch.stack([gi.float(), gj.float()], dim=-1)  # (N, 2)
+                pxy = ps[:, 0:2].sigmoid() * 2.0 - 0.5 + grid_xy
                 pwh = (ps[:, 2:4].sigmoid() * 2) ** 2 * anchor_w  # (N, 2)
                 pbox = torch.cat([pxy, pwh], dim=-1)
-                ciou = bbox_ciou(pbox, tbox)
+                tbox_full = torch.cat([tbox[:, 0:2] + grid_xy, tbox[:, 2:4]], dim=1)
+                ciou = bbox_ciou(pbox, tbox_full)
                 loss_box = loss_box + (1.0 - ciou).mean()
 
                 obj_target[b, a, gj, gi] = ciou.detach().clamp(0).type(obj_target.dtype)

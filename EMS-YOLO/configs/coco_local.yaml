@@ -1,0 +1,33 @@
+model:
+  backbone: ems_resnet34
+  T: 4
+  decay: 0.25
+  num_classes: 80
+  num_anchors: 3
+  anchors:
+    - [[10, 13], [16, 30], [33, 23]]
+    - [[30, 61], [62, 45], [59, 119]]
+  strides: [16, 32]
+
+data:
+  img_size: 320        # 4x fewer pixels than 640 — much faster per batch
+  num_workers: 0
+  pin_memory: false
+
+train:
+  epochs: 20
+  batch_size: 2
+  lr0: 1.0e-2
+  momentum: 0.937
+  weight_decay: 5.0e-4
+  warmup_epochs: 0
+  accum_steps: 1
+  amp: true
+  eval_every: 5
+  save_every: 10
+  max_steps: 1000        # cap steps/epoch; remove for a real local run
+
+wandb:
+  entity: adela-greganova-tu-delft
+  project: COCO-runs
+  name: coco-local-smoke

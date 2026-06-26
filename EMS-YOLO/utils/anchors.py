@@ -70,12 +70,39 @@ def match_targets(
     tcls = t[t_idx, 1].long()
     txy = gxy[t_idx]                 # (n, 2)
     twh = gwh[t_idx]                 # (n, 2)
-    gi = txy[:, 0].long().clamp(0, gw - 1)
-    gj = txy[:, 1].long().clamp(0, gh - 1)
-    # localise target xy to cell offset
-    txy_off = txy - txy.floor()
+    # Multi-positive: assign center cell + up to 2 nearest neighbor cells (YOLOv5 g=0.5 pattern).
+    # Subtracting off[i] before floor() shifts the cell index to the neighbor:
+    #   [0,0]   center   txy_off ∈ [0,1)
+    #   [.5,0]  left     floor(gxy-.5)=gi-1 when frac_x<.5  → txy_off_x=frac+1 ∈(1,1.5)
+    #   [0,.5]  top      same logic, y axis
+    #   [-.5,0] right    floor(gxy+.5)=gi+1 when frac_x>.5  → txy_off_x=frac-1 ∈(-0.5,0)
+    #   [0,-.5] bottom
+    g = 0.5
+    off = torch.tensor([[0., 0.], [.5, 0.], [0., .5], [-.5, 0.], [0., -.5]], device=device)
 
-    tbox = torch.cat([txy_off, twh], dim=1)
-    anchor_w = anchors_grid[a_idx]
+    frac = txy % 1
+    use = torch.stack([
+        torch.ones(n, dtype=torch.bool, device=device),           # center always
+        (frac[:, 0] < g) & (txy[:, 0] >= 1),                     # left
+        (frac[:, 1] < g) & (txy[:, 1] >= 1),                     # top
+        (frac[:, 0] > 1 - g) & (txy[:, 0] < gw - 1),            # right
+        (frac[:, 1] > 1 - g) & (txy[:, 1] < gh - 1),            # bottom
+    ])  # (5, n)
+    flat = use.reshape(-1)
 
-    return tcls, tbox, (b, a_idx, gj, gi), anchor_w
+    e_txy  = txy.unsqueeze(0).expand(5, -1, -1).reshape(-1, 2)[flat]
+    e_twh  = twh.unsqueeze(0).expand(5, -1, -1).reshape(-1, 2)[flat]
+    e_b    = b.unsqueeze(0).expand(5, -1).reshape(-1)[flat]
+    e_tcls = tcls.unsqueeze(0).expand(5, -1).reshape(-1)[flat]
+    e_a    = a_idx.unsqueeze(0).expand(5, -1).reshape(-1)[flat]
+    e_off  = off.unsqueeze(1).expand(-1, n, -1).reshape(-1, 2)[flat]
+
+    gij = (e_txy - e_off).long()
+    gi  = gij[:, 0].clamp(0, gw - 1)
+    gj  = gij[:, 1].clamp(0, gh - 1)
+    txy_off = e_txy - gij.float()   # cell-relative; ∈ (-0.5, 1.5) for neighbor cells
+
+    tbox    = torch.cat([txy_off, e_twh], dim=1)
+    anchor_w = anchors_grid[e_a]
+
+    return e_tcls, tbox, (e_b, e_a, gj, gi), anchor_w
